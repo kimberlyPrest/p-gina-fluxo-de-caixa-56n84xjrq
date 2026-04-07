@@ -2,7 +2,14 @@ import { DateRange, PeriodFilter } from '@/types'
 import { DatePickerWithRange } from '@/components/ui/date-range-picker'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Search } from 'lucide-react'
+import { Search, Building2 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface DashboardFiltersProps {
   period: PeriodFilter
@@ -11,6 +18,8 @@ interface DashboardFiltersProps {
   setDateRange: (d: DateRange | undefined) => void
   search: string
   setSearch: (s: string) => void
+  empresa?: string
+  setEmpresa?: (e: string) => void
 }
 
 export function DashboardFilters({
@@ -64,6 +73,22 @@ export function DashboardFilters({
       </Tabs>
 
       <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto flex-1 xl:flex-none">
+        {setEmpresa && (
+          <div className="w-full sm:w-[180px]">
+            <Select value={empresa || 'todas'} onValueChange={setEmpresa}>
+              <SelectTrigger className="h-10 bg-card border-border focus-visible:ring-primary">
+                <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Empresa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as Empresas</SelectItem>
+                <SelectItem value="Linhares">Linhares</SelectItem>
+                <SelectItem value="Zapdos">Zapdos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div className="w-full sm:w-[260px]">
           <DatePickerWithRange date={dateRange} setDate={handleDateChange} />
         </div>

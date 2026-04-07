@@ -8,6 +8,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const body = await req.json().catch(() => ({}))
+    const empresa = body.empresa || 'Linhares'
+    const page = body.page || 1
+    const pageSize = 50 // Lotes menores para processar em etapas sem estourar limites
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -18,20 +23,20 @@ Deno.serve(async (req: Request) => {
       },
     )
 
-    // Usando as credenciais da API do Bom Controle
-    const zapdosApi = Deno.env.get('ZAPDOS_API')
-    const linharesApi = Deno.env.get('LINHARES_API')
-
     // Simulando chamada na API do Bom Controle paginada (trazendo todos os dados de Jan 2025 até hoje)
-    const mockBomControleData: any[] = []
-
     const startDate = new Date('2025-01-01T12:00:00Z')
     const endDate = new Date() // Hoje
 
-    let currentDate = new Date(startDate)
-    let counter = 0
+    // Calcula total de dias para mockar registros (1 por dia por empresa)
+    const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+    const totalRecords = Math.max(totalDays + 1, 1)
 
-    const templates = [
+    const startIndex = (page - 1) * pageSize
+    const endIndex = Math.min(startIndex + pageSize, totalRecords)
+
+    const mockBomControleData: any[] = []
+
+    const templatesLinhares = [
       {
         tipo: 'RECEITA',
         valor: 4500.0,
@@ -52,6 +57,27 @@ Deno.serve(async (req: Request) => {
       },
       {
         tipo: 'RECEITA',
+        valor: 1500.0,
+        descricao: 'Manutenção Mensal de Servidores (BC)',
+        cf_nome: 'Gama Hosting',
+        cf_tipo: 'CLIENTE',
+        cat_nome: 'Serviços Prestados',
+        cat_tipo: 'RECEITA',
+      },
+      {
+        tipo: 'DESPESA',
+        valor: 2000.0,
+        descricao: 'Aluguel Escritório (BC)',
+        cf_nome: 'Imobiliária Central',
+        cf_tipo: 'FORNECEDOR',
+        cat_nome: 'Infraestrutura',
+        cat_tipo: 'DESPESA',
+      },
+    ]
+
+    const templatesZapdos = [
+      {
+        tipo: 'RECEITA',
         valor: 8000.0,
         descricao: 'Projeto Especial (BC)',
         cf_nome: 'Beta Corporação',
@@ -67,15 +93,6 @@ Deno.serve(async (req: Request) => {
         cf_tipo: 'FORNECEDOR',
         cat_nome: 'Materiais',
         cat_tipo: 'DESPESA',
-      },
-      {
-        tipo: 'RECEITA',
-        valor: 1500.0,
-        descricao: 'Manutenção Mensal de Servidores (BC)',
-        cf_nome: 'Gama Hosting',
-        cf_tipo: 'CLIENTE',
-        cat_nome: 'Serviços Prestados',
-        cat_tipo: 'RECEITA',
       },
       {
         tipo: 'DESPESA',
@@ -95,23 +112,19 @@ Deno.serve(async (req: Request) => {
         cat_nome: 'Vendas',
         cat_tipo: 'RECEITA',
       },
-      {
-        tipo: 'DESPESA',
-        valor: 2000.0,
-        descricao: 'Aluguel Escritório (BC)',
-        cf_nome: 'Imobiliária Central',
-        cf_tipo: 'FORNECEDOR',
-        cat_nome: 'Infraestrutura',
-        cat_tipo: 'DESPESA',
-      },
     ]
 
-    while (currentDate <= endDate) {
-      const template = templates[counter % templates.length]
+    const templates = empresa === 'Zapdos' ? templatesZapdos : templatesLinhares
+
+    for (let i = startIndex; i < endIndex; i++) {
+      const template = templates[i % templates.length]
+
+      const currentDate = new Date(startDate)
+      currentDate.setDate(currentDate.getDate() + i)
 
       mockBomControleData.push({
         tipo: template.tipo,
-        valor: template.valor + ((counter * 10) % 100), // Variar o valor para simular registros diferentes
+        valor: template.valor + ((i * 10) % 100), // Variar o valor para simular registros diferentes
         data_realizado: currentDate.toISOString().split('T')[0],
         descricao: template.descricao,
         cliente_fornecedor_nome: template.cf_nome,
@@ -119,20 +132,15 @@ Deno.serve(async (req: Request) => {
         categoria_nome: template.cat_nome,
         categoria_tipo: template.cat_tipo,
       })
-
-      currentDate.setDate(currentDate.getDate() + 3) // A cada 3 dias tem um registro
-      counter++
     }
 
     let inserted = 0
     let skipped = 0
 
-    // Caches para otimizar consultas e evitar timeout com muitos dados
     const categoriaCache = new Map<string, string>()
     const clienteFornecedorCache = new Map<string, string>()
 
     for (const item of mockBomControleData) {
-      // 1. Processar Categoria
       let categoriaId = null
       if (item.categoria_nome) {
         const cacheKey = `${item.categoria_nome}-${item.categoria_tipo}`
@@ -163,7 +171,6 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // 2. Processar Cliente/Fornecedor
       let clienteFornecedorId = null
       if (item.cliente_fornecedor_nome) {
         const cacheKey = `${item.cliente_fornecedor_nome}-${item.cliente_fornecedor_tipo}`
@@ -194,12 +201,12 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // 3. Validação de duplicatas: comparar por data_realizado + valor + cliente_fornecedor
       let query = supabaseClient
         .from('movimentacoes')
         .select('id')
         .eq('data_realizado', item.data_realizado)
         .eq('valor_realizado', item.valor)
+        .eq('empresa', empresa)
 
       if (clienteFornecedorId) {
         query = query.eq('cliente_fornecedor', clienteFornecedorId)
@@ -214,7 +221,6 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
-      // 4. Inserir Movimentação
       const { error } = await supabaseClient.from('movimentacoes').insert({
         tipo: item.tipo,
         valor_realizado: item.valor,
@@ -225,6 +231,7 @@ Deno.serve(async (req: Request) => {
         categoria: categoriaId,
         quitado: true,
         conciliado: true,
+        empresa: empresa,
       })
 
       if (error) {
@@ -234,12 +241,16 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const hasMore = endIndex < totalRecords
+
     return new Response(
       JSON.stringify({
         success: true,
-        message: `${inserted} movimentações sincronizadas, ${skipped} duplicatas ignoradas`,
+        message: `${inserted} movimentações sincronizadas, ${skipped} ignoradas.`,
         inserted,
         skipped,
+        hasMore,
+        page,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -19,7 +19,14 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
-import { Loader2, RefreshCw, ArrowUpCircle, ArrowDownCircle, DollarSign } from 'lucide-react'
+import {
+  Loader2,
+  RefreshCw,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  DollarSign,
+  Building2,
+} from 'lucide-react'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 
 interface Movimentacao {
@@ -28,6 +35,7 @@ interface Movimentacao {
   valor_realizado: number
   data_realizado: string
   descricao: string
+  empresa: string
   clientes_fornecedores: { nome: string } | null
   categorias: { nome: string } | null
 }
@@ -36,8 +44,10 @@ export default function Index() {
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState('')
   const [ano, setAno] = useState(new Date().getFullYear().toString())
   const [mes, setMes] = useState((new Date().getMonth() + 1).toString())
+  const [empresa, setEmpresa] = useState('todas')
   const { toast } = useToast()
 
   const fetchMovimentacoes = async () => {
@@ -46,7 +56,7 @@ export default function Index() {
       let query = supabase
         .from('movimentacoes')
         .select(`
-          id, tipo, valor_realizado, data_realizado, descricao,
+          id, tipo, valor_realizado, data_realizado, descricao, empresa,
           clientes_fornecedores(nome),
           categorias(nome)
         `)
@@ -58,6 +68,10 @@ export default function Index() {
         query = query
           .gte('data_realizado', startDate.toISOString().split('T')[0])
           .lte('data_realizado', endDate.toISOString().split('T')[0])
+      }
+
+      if (empresa !== 'todas') {
+        query = query.eq('empresa', empresa)
       }
 
       const { data, error } = await query
@@ -77,23 +91,45 @@ export default function Index() {
 
   useEffect(() => {
     fetchMovimentacoes()
-  }, [ano, mes])
+  }, [ano, mes, empresa])
 
   const handleSync = async () => {
     setSyncing(true)
-    try {
-      const { data, error } = await supabase.functions.invoke('sync-bom-controle', {
-        method: 'POST',
-      })
+    let totalInserted = 0
+    let totalSkipped = 0
 
-      if (error) throw error
-      if (data?.error) throw new Error(data.error)
+    try {
+      const empresasToSync = empresa === 'todas' ? ['Linhares', 'Zapdos'] : [empresa]
+
+      for (const emp of empresasToSync) {
+        let hasMore = true
+        let page = 1
+
+        while (hasMore) {
+          setSyncProgress(`Sincronizando ${emp} (Lote ${page})...`)
+          const { data, error } = await supabase.functions.invoke('sync-bom-controle', {
+            method: 'POST',
+            body: { empresa: emp, page },
+          })
+
+          if (error) throw error
+          if (data?.error) throw new Error(data.error)
+
+          totalInserted += data.inserted || 0
+          totalSkipped += data.skipped || 0
+          hasMore = data.hasMore
+          page++
+
+          if (hasMore) {
+            setSyncProgress(`Aguardando API para ${emp}...`)
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        }
+      }
 
       toast({
         title: 'Sincronização Concluída',
-        description:
-          data.message ||
-          `${data.inserted} movimentações sincronizadas, ${data.skipped} duplicatas ignoradas`,
+        description: `${totalInserted} movimentações sincronizadas, ${totalSkipped} duplicatas ignoradas.`,
       })
 
       fetchMovimentacoes()
@@ -105,6 +141,7 @@ export default function Index() {
       })
     } finally {
       setSyncing(false)
+      setSyncProgress('')
     }
   }
 
@@ -152,7 +189,7 @@ export default function Index() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sincronizar Dados
+            {syncing ? syncProgress || 'Sincronizando...' : 'Sincronizar Dados'}
           </Button>
         </div>
       </div>
@@ -193,7 +230,18 @@ export default function Index() {
         </Card>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-wrap">
+        <Select value={empresa} onValueChange={setEmpresa}>
+          <SelectTrigger className="w-[180px]">
+            <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="Empresa" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas as Empresas</SelectItem>
+            <SelectItem value="Linhares">Linhares</SelectItem>
+            <SelectItem value="Zapdos">Zapdos</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={ano} onValueChange={setAno}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Selecione o ano" />
@@ -237,6 +285,7 @@ export default function Index() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Data</TableHead>
+                    <TableHead>Empresa</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead>Cliente/Fornecedor</TableHead>
                     <TableHead>Categoria</TableHead>
@@ -247,7 +296,7 @@ export default function Index() {
                 <TableBody>
                   {movimentacoes.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         Nenhuma movimentação encontrada para o período.
                       </TableCell>
                     </TableRow>
@@ -255,6 +304,11 @@ export default function Index() {
                     movimentacoes.map((mov) => (
                       <TableRow key={mov.id}>
                         <TableCell>{formatDate(new Date(mov.data_realizado))}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="font-normal text-muted-foreground">
+                            {mov.empresa}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="font-medium">{mov.descricao || '-'}</TableCell>
                         <TableCell>{mov.clientes_fornecedores?.nome || '-'}</TableCell>
                         <TableCell>{mov.categorias?.nome || '-'}</TableCell>

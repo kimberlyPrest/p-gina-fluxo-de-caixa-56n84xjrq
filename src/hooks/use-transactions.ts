@@ -7,6 +7,7 @@ export function useTransactions(
   period: PeriodFilter,
   dateRange: DateRange | undefined,
   searchTerm: string,
+  empresaFilter: string = 'todas',
 ) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(false)
@@ -50,6 +51,10 @@ export function useTransactions(
       query = query.gte('data_realizado', format(fromDate, 'yyyy-MM-dd'))
     }
 
+    if (empresaFilter !== 'todas') {
+      query = query.eq('empresa', empresaFilter)
+    }
+
     const { data, error } = await query
 
     if (!error && data) {
@@ -77,7 +82,7 @@ export function useTransactions(
 
   useEffect(() => {
     fetchTransactions()
-  }, [period, dateRange, searchTerm])
+  }, [period, dateRange, searchTerm, empresaFilter])
 
   const summary = useMemo<SummaryData>(() => {
     return transactions.reduce(
