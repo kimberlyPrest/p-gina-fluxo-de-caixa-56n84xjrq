@@ -58,10 +58,10 @@ export function AppSidebar() {
             </SidebarMenuItem>
 
             <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive={location.pathname === '/relatorios'}>
-                <Link to="/relatorios">
+              <SidebarMenuButton asChild isActive={location.pathname === '/dre'}>
+                <Link to="/dre">
                   <FileText className="h-4 w-4" />
-                  <span className="font-medium">Relatórios</span>
+                  <span className="font-medium">DRE</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

@@ -119,7 +119,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_top_fornecedores: {
+        Args: { p_ano?: number; p_mes?: number }
+        Returns: {
+          fornecedor_id: string
+          nome_fornecedor: string
+          quantidade_transacoes: number
+          total_acumulado: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -327,6 +335,31 @@ export const Constants = {
 //   Policy "authenticated_update_movimentacoes" (UPDATE, PERMISSIVE) roles={authenticated}
 //     USING: true
 //     WITH CHECK: true
+
+// --- DATABASE FUNCTIONS ---
+// FUNCTION get_top_fornecedores(integer, integer)
+//   CREATE OR REPLACE FUNCTION public.get_top_fornecedores(p_ano integer DEFAULT NULL::integer, p_mes integer DEFAULT NULL::integer)
+//    RETURNS TABLE(fornecedor_id uuid, nome_fornecedor text, total_acumulado numeric, quantidade_transacoes bigint)
+//    LANGUAGE plpgsql
+//   AS $function$
+//   BEGIN
+//     RETURN QUERY
+//     SELECT
+//       m.cliente_fornecedor AS fornecedor_id,
+//       COALESCE(MAX(cf.nome), 'Fornecedor não informado') AS nome_fornecedor,
+//       SUM(m.valor_realizado) AS total_acumulado,
+//       COUNT(m.id) AS quantidade_transacoes
+//     FROM public.movimentacoes m
+//     LEFT JOIN public.clientes_fornecedores cf ON m.cliente_fornecedor = cf.id
+//     WHERE m.tipo = 'DESPESA'
+//       AND (p_ano IS NULL OR EXTRACT(YEAR FROM m.data_realizado::date) = p_ano)
+//       AND (p_mes IS NULL OR EXTRACT(MONTH FROM m.data_realizado::date) = p_mes)
+//     GROUP BY m.cliente_fornecedor
+//     ORDER BY total_acumulado DESC NULLS LAST
+//     LIMIT 10;
+//   END;
+//   $function$
+//
 
 // --- INDEXES ---
 // Table: movimentacoes
