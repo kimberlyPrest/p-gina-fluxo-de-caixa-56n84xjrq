@@ -22,105 +22,175 @@ Deno.serve(async (req: Request) => {
     const zapdosApi = Deno.env.get('ZAPDOS_API')
     const linharesApi = Deno.env.get('LINHARES_API')
 
-    // Simulando chamada na API do Bom Controle (trazendo dados de Jan 2025 em diante)
-    const mockBomControleData = [
+    // Simulando chamada na API do Bom Controle paginada (trazendo todos os dados de Jan 2025 até hoje)
+    const mockBomControleData: any[] = []
+
+    const startDate = new Date('2025-01-01T12:00:00Z')
+    const endDate = new Date() // Hoje
+
+    let currentDate = new Date(startDate)
+    let counter = 0
+
+    const templates = [
       {
         tipo: 'RECEITA',
         valor: 4500.0,
-        data_realizado: '2025-01-20',
         descricao: 'Serviços de Consultoria (BC)',
-        cliente_fornecedor_nome: 'Cliente Alpha Ltda',
-        cliente_fornecedor_tipo: 'CLIENTE',
-        categoria_nome: 'Serviços Prestados',
-        categoria_tipo: 'RECEITA',
+        cf_nome: 'Cliente Alpha Ltda',
+        cf_tipo: 'CLIENTE',
+        cat_nome: 'Serviços Prestados',
+        cat_tipo: 'RECEITA',
       },
       {
         tipo: 'DESPESA',
         valor: 120.5,
-        data_realizado: '2025-01-25',
         descricao: 'Licença de Software Mensal (BC)',
-        cliente_fornecedor_nome: 'Tech Software SA',
-        cliente_fornecedor_tipo: 'FORNECEDOR',
-        categoria_nome: 'Licenças e Softwares',
-        categoria_tipo: 'DESPESA',
+        cf_nome: 'Tech Software SA',
+        cf_tipo: 'FORNECEDOR',
+        cat_nome: 'Licenças e Softwares',
+        cat_tipo: 'DESPESA',
       },
       {
         tipo: 'RECEITA',
         valor: 8000.0,
-        data_realizado: '2025-02-15',
         descricao: 'Projeto Especial (BC)',
-        cliente_fornecedor_nome: 'Beta Corporação',
-        cliente_fornecedor_tipo: 'CLIENTE',
-        categoria_nome: 'Projetos',
-        categoria_tipo: 'RECEITA',
+        cf_nome: 'Beta Corporação',
+        cf_tipo: 'CLIENTE',
+        cat_nome: 'Projetos',
+        cat_tipo: 'RECEITA',
       },
       {
         tipo: 'DESPESA',
         valor: 350.0,
-        data_realizado: '2025-03-05',
         descricao: 'Materiais de Escritório (BC)',
-        cliente_fornecedor_nome: 'Kalunga',
-        cliente_fornecedor_tipo: 'FORNECEDOR',
-        categoria_nome: 'Materiais',
-        categoria_tipo: 'DESPESA',
+        cf_nome: 'Kalunga',
+        cf_tipo: 'FORNECEDOR',
+        cat_nome: 'Materiais',
+        cat_tipo: 'DESPESA',
       },
       {
         tipo: 'RECEITA',
         valor: 1500.0,
-        data_realizado: '2025-04-10',
         descricao: 'Manutenção Mensal de Servidores (BC)',
-        cliente_fornecedor_nome: 'Gama Hosting',
-        cliente_fornecedor_tipo: 'CLIENTE',
-        categoria_nome: 'Serviços Prestados',
-        categoria_tipo: 'RECEITA',
+        cf_nome: 'Gama Hosting',
+        cf_tipo: 'CLIENTE',
+        cat_nome: 'Serviços Prestados',
+        cat_tipo: 'RECEITA',
+      },
+      {
+        tipo: 'DESPESA',
+        valor: 800.0,
+        descricao: 'Marketing Ads (BC)',
+        cf_nome: 'Google Brasil',
+        cf_tipo: 'FORNECEDOR',
+        cat_nome: 'Marketing',
+        cat_tipo: 'DESPESA',
+      },
+      {
+        tipo: 'RECEITA',
+        valor: 3200.0,
+        descricao: 'Venda de Licenças (BC)',
+        cf_nome: 'Empresa Delta',
+        cf_tipo: 'CLIENTE',
+        cat_nome: 'Vendas',
+        cat_tipo: 'RECEITA',
+      },
+      {
+        tipo: 'DESPESA',
+        valor: 2000.0,
+        descricao: 'Aluguel Escritório (BC)',
+        cf_nome: 'Imobiliária Central',
+        cf_tipo: 'FORNECEDOR',
+        cat_nome: 'Infraestrutura',
+        cat_tipo: 'DESPESA',
       },
     ]
 
+    while (currentDate <= endDate) {
+      const template = templates[counter % templates.length]
+
+      mockBomControleData.push({
+        tipo: template.tipo,
+        valor: template.valor + ((counter * 10) % 100), // Variar o valor para simular registros diferentes
+        data_realizado: currentDate.toISOString().split('T')[0],
+        descricao: template.descricao,
+        cliente_fornecedor_nome: template.cf_nome,
+        cliente_fornecedor_tipo: template.cf_tipo,
+        categoria_nome: template.cat_nome,
+        categoria_tipo: template.cat_tipo,
+      })
+
+      currentDate.setDate(currentDate.getDate() + 3) // A cada 3 dias tem um registro
+      counter++
+    }
+
     let inserted = 0
     let skipped = 0
+
+    // Caches para otimizar consultas e evitar timeout com muitos dados
+    const categoriaCache = new Map<string, string>()
+    const clienteFornecedorCache = new Map<string, string>()
 
     for (const item of mockBomControleData) {
       // 1. Processar Categoria
       let categoriaId = null
       if (item.categoria_nome) {
-        const { data: catData } = await supabaseClient
-          .from('categorias')
-          .select('id')
-          .eq('nome', item.categoria_nome)
-          .eq('tipo', item.categoria_tipo)
-          .maybeSingle()
-
-        if (catData) {
-          categoriaId = catData.id
+        const cacheKey = `${item.categoria_nome}-${item.categoria_tipo}`
+        if (categoriaCache.has(cacheKey)) {
+          categoriaId = categoriaCache.get(cacheKey)
         } else {
-          const { data: newCat } = await supabaseClient
+          const { data: catData } = await supabaseClient
             .from('categorias')
-            .insert({ nome: item.categoria_nome, tipo: item.categoria_tipo })
             .select('id')
-            .single()
-          if (newCat) categoriaId = newCat.id
+            .eq('nome', item.categoria_nome)
+            .eq('tipo', item.categoria_tipo)
+            .maybeSingle()
+
+          if (catData) {
+            categoriaId = catData.id
+            categoriaCache.set(cacheKey, catData.id)
+          } else {
+            const { data: newCat } = await supabaseClient
+              .from('categorias')
+              .insert({ nome: item.categoria_nome, tipo: item.categoria_tipo })
+              .select('id')
+              .single()
+            if (newCat) {
+              categoriaId = newCat.id
+              categoriaCache.set(cacheKey, newCat.id)
+            }
+          }
         }
       }
 
       // 2. Processar Cliente/Fornecedor
       let clienteFornecedorId = null
       if (item.cliente_fornecedor_nome) {
-        const { data: cfData } = await supabaseClient
-          .from('clientes_fornecedores')
-          .select('id')
-          .eq('nome', item.cliente_fornecedor_nome)
-          .eq('tipo', item.cliente_fornecedor_tipo)
-          .maybeSingle()
-
-        if (cfData) {
-          clienteFornecedorId = cfData.id
+        const cacheKey = `${item.cliente_fornecedor_nome}-${item.cliente_fornecedor_tipo}`
+        if (clienteFornecedorCache.has(cacheKey)) {
+          clienteFornecedorId = clienteFornecedorCache.get(cacheKey)
         } else {
-          const { data: newCf } = await supabaseClient
+          const { data: cfData } = await supabaseClient
             .from('clientes_fornecedores')
-            .insert({ nome: item.cliente_fornecedor_nome, tipo: item.cliente_fornecedor_tipo })
             .select('id')
-            .single()
-          if (newCf) clienteFornecedorId = newCf.id
+            .eq('nome', item.cliente_fornecedor_nome)
+            .eq('tipo', item.cliente_fornecedor_tipo)
+            .maybeSingle()
+
+          if (cfData) {
+            clienteFornecedorId = cfData.id
+            clienteFornecedorCache.set(cacheKey, cfData.id)
+          } else {
+            const { data: newCf } = await supabaseClient
+              .from('clientes_fornecedores')
+              .insert({ nome: item.cliente_fornecedor_nome, tipo: item.cliente_fornecedor_tipo })
+              .select('id')
+              .single()
+            if (newCf) {
+              clienteFornecedorId = newCf.id
+              clienteFornecedorCache.set(cacheKey, newCf.id)
+            }
+          }
         }
       }
 
