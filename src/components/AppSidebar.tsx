@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, FileText, Settings, LogOut } from 'lucide-react'
+import { Home, FileText, Settings, LogOut, Users } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -40,8 +40,17 @@ export function AppSidebar() {
             </SidebarMenuItem>
 
             <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={location.pathname === '/top-clientes'}>
+                <Link to="/top-clientes">
+                  <Users className="h-4 w-4" />
+                  <span className="font-medium">Top Clientes</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={location.pathname === '/relatorios'}>
-                <Link to="/">
+                <Link to="/relatorios">
                   <FileText className="h-4 w-4" />
                   <span className="font-medium">Relatórios</span>
                 </Link>
