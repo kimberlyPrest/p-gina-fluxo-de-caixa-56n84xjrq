@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { Transaction, PeriodFilter, DateRange, SummaryData } from '@/types'
 import { supabase } from '@/lib/supabase/client'
-import { isWithinInterval, startOfDay, endOfDay, subDays, subWeeks, subMonths } from 'date-fns'
+import { format, startOfDay, subWeeks, subMonths } from 'date-fns'
 
 export function useTransactions(
   period: PeriodFilter,
@@ -9,50 +9,29 @@ export function useTransactions(
   searchTerm: string,
 ) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      const { data, error } = await supabase
-        .from('movimentacoes')
-        .select(`
-          id,
-          tipo,
-          valor_realizado,
-          data_realizado,
-          quitado,
-          clientes_fornecedores:cliente_fornecedor ( nome ),
-          categorias:categoria ( nome )
-        `)
-        .order('data_realizado', { ascending: false })
+  const fetchTransactions = async () => {
+    setLoading(true)
+    let query = supabase
+      .from('movimentacoes')
+      .select(`
+        id,
+        tipo,
+        valor_realizado,
+        data_realizado,
+        quitado,
+        clientes_fornecedores:cliente_fornecedor ( nome ),
+        categorias:categoria ( nome )
+      `)
+      .order('data_realizado', { ascending: false })
 
-      if (!error && data) {
-        const mapped: Transaction[] = data.map((d: any) => ({
-          id: d.id,
-          type: String(d.tipo).toUpperCase() === 'RECEITA' ? 'RECEITA' : 'DESPESA',
-          entity: d.clientes_fornecedores?.nome || '-',
-          category: d.categorias?.nome || '-',
-          amount: Number(d.valor_realizado) || 0,
-          date: d.data_realizado ? `${d.data_realizado}T12:00:00Z` : new Date().toISOString(),
-          status: d.quitado ? 'CONCLUÍDO' : 'PENDENTE',
-        }))
-        setTransactions(mapped)
-      }
-    }
-
-    fetchTransactions()
-  }, [])
-
-  const filteredData = useMemo(() => {
-    let filtered = transactions
     const now = new Date()
 
-    // 1. Filter by Date
     if (period === 'custom' && dateRange?.from) {
-      const from = startOfDay(dateRange.from)
-      const to = endOfDay(dateRange.to || dateRange.from)
-      filtered = filtered.filter((t) =>
-        isWithinInterval(new Date(t.date), { start: from, end: to }),
-      )
+      const from = format(dateRange.from, 'yyyy-MM-dd')
+      const to = format(dateRange.to || dateRange.from, 'yyyy-MM-dd')
+      query = query.gte('data_realizado', from).lte('data_realizado', to)
     } else if (period !== 'custom') {
       let fromDate: Date
       switch (period) {
@@ -68,22 +47,40 @@ export function useTransactions(
         default:
           fromDate = startOfDay(subMonths(now, 1))
       }
-      filtered = filtered.filter((t) => new Date(t.date) >= fromDate)
+      query = query.gte('data_realizado', format(fromDate, 'yyyy-MM-dd'))
     }
 
-    // 2. Filter by Search Term
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase()
-      filtered = filtered.filter(
-        (t) => t.entity.toLowerCase().includes(term) || t.category.toLowerCase().includes(term),
-      )
-    }
+    const { data, error } = await query
 
-    return filtered
-  }, [transactions, period, dateRange, searchTerm])
+    if (!error && data) {
+      let mapped: Transaction[] = data.map((d: any) => ({
+        id: d.id,
+        type: String(d.tipo).toUpperCase() === 'RECEITA' ? 'RECEITA' : 'DESPESA',
+        entity: d.clientes_fornecedores?.nome || '-',
+        category: d.categorias?.nome || '-',
+        amount: Number(d.valor_realizado) || 0,
+        date: d.data_realizado ? `${d.data_realizado}T12:00:00Z` : new Date().toISOString(),
+        status: d.quitado ? 'CONCLUÍDO' : 'PENDENTE',
+      }))
+
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase()
+        mapped = mapped.filter(
+          (t) => t.entity.toLowerCase().includes(term) || t.category.toLowerCase().includes(term),
+        )
+      }
+
+      setTransactions(mapped)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    fetchTransactions()
+  }, [period, dateRange, searchTerm])
 
   const summary = useMemo<SummaryData>(() => {
-    return filteredData.reduce(
+    return transactions.reduce(
       (acc, curr) => {
         if (curr.type === 'RECEITA') {
           acc.receitas += curr.amount
@@ -96,7 +93,7 @@ export function useTransactions(
       },
       { receitas: 0, despesas: 0, saldo: 0 },
     )
-  }, [filteredData])
+  }, [transactions])
 
-  return { transactions: filteredData, summary }
+  return { transactions, summary, loading, refetch: fetchTransactions }
 }
