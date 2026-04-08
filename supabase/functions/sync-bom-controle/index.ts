@@ -4,7 +4,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
 Deno.serve(async (req: Request) => {
@@ -25,13 +26,11 @@ Deno.serve(async (req: Request) => {
         global: {
           headers: { Authorization: req.headers.get('Authorization')! },
         },
-      }
+      },
     )
 
     // Captura a chave de API correta baseada na empresa selecionada
-    const apiKey = empresa === 'Zapdos'
-      ? Deno.env.get('ZAPDOS_API')
-      : Deno.env.get('LINHARES_API')
+    const apiKey = empresa === 'Zapdos' ? Deno.env.get('ZAPDOS_API') : Deno.env.get('LINHARES_API')
 
     if (!apiKey) {
       throw new Error(`API key not configured for empresa: ${empresa}`)
@@ -57,10 +56,10 @@ Deno.serve(async (req: Request) => {
         const apiResponse = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `ApiKey ${apiKey}`,
+            Authorization: `ApiKey ${apiKey}`,
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
+            Accept: 'application/json',
+          },
         })
 
         if (!apiResponse.ok) {
@@ -73,11 +72,11 @@ Deno.serve(async (req: Request) => {
         const itens = result.Itens || []
         apiData = apiData.concat(itens)
 
-        hasMoreData = (currentPage * pageSize) < (result.TotalItens || 0)
+        hasMoreData = currentPage * pageSize < (result.TotalItens || 0)
         currentPage++
       }
     } catch (fetchError: any) {
-      console.error("Erro ao chamar API do Bom Controle:", fetchError.message)
+      console.error('Erro ao chamar API do Bom Controle:', fetchError.message)
       throw fetchError
     }
 
@@ -92,7 +91,7 @@ Deno.serve(async (req: Request) => {
       const categoriaNome = item.NomeCategoriaFinanceira || 'Sem Categoria'
       const categoriaTipo = item.Debito ? 'DESPESA' : 'RECEITA'
 
-      let categoriaId = null;
+      let categoriaId = null
       if (categoriaNome) {
         const cacheKey = `${categoriaNome}-${categoriaTipo}`
         if (categoriaCache.has(cacheKey)) {
@@ -126,7 +125,7 @@ Deno.serve(async (req: Request) => {
       const cfNome = item.NomeClienteFornecedor || 'Não Informado'
       const cfTipo = item.Debito ? 'FORNECEDOR' : 'CLIENTE'
 
-      let clienteFornecedorId = null;
+      let clienteFornecedorId = null
       if (cfNome && cfNome !== 'Não Informado') {
         const cacheKey = `${cfNome}-${cfTipo}`
         if (clienteFornecedorCache.has(cacheKey)) {
@@ -148,7 +147,7 @@ Deno.serve(async (req: Request) => {
               .insert({
                 nome: cfNome,
                 tipo: cfTipo,
-                documento: item.DocumentoClienteFornecedor || null
+                documento: item.DocumentoClienteFornecedor || null,
               })
               .select('id')
               .single()
@@ -161,7 +160,8 @@ Deno.serve(async (req: Request) => {
       }
 
       // 3. Normalização e Validação de Dados Principais
-      const dataRealizado = item.DataQuitacao || item.DataVencimento || new Date().toISOString().split('T')[0]
+      const dataRealizado =
+        item.DataQuitacao || item.DataVencimento || new Date().toISOString().split('T')[0]
       const valorRealizado = item.Valor || 0
 
       // Verifica duplicidade exata para evitar recriação durante sincronizações repetidas
@@ -170,12 +170,12 @@ Deno.serve(async (req: Request) => {
         .select('id')
         .eq('data_realizado', dataRealizado)
         .eq('valor_realizado', valorRealizado)
-        .eq('empresa', empresa);
+        .eq('empresa', empresa)
 
       if (clienteFornecedorId) {
-        query = query.eq('cliente_fornecedor', clienteFornecedorId);
+        query = query.eq('cliente_fornecedor', clienteFornecedorId)
       } else {
-        query = query.is('cliente_fornecedor', null);
+        query = query.is('cliente_fornecedor', null)
       }
 
       const { data: existing } = await query.maybeSingle()
@@ -189,20 +189,18 @@ Deno.serve(async (req: Request) => {
       const finalTipo = item.Debito ? 'DESPESA' : 'RECEITA'
 
       // 4. Inserção do Registro
-      const { error } = await supabaseClient
-        .from('movimentacoes')
-        .insert({
-          tipo: finalTipo,
-          valor_realizado: valorRealizado,
-          data_realizado: dataRealizado,
-          competencia: item.DataCompetencia || dataRealizado,
-          descricao: item.Nome || 'Sincronizado do Bom Controle',
-          cliente_fornecedor: clienteFornecedorId,
-          categoria: categoriaId,
-          quitado: item.DataQuitacao ? true : false,
-          conciliado: item.DataConciliacao ? true : false,
-          empresa: empresa // ✅ SEPARA AS EMPRESAS
-        })
+      const { error } = await supabaseClient.from('movimentacoes').insert({
+        tipo: finalTipo,
+        valor_realizado: valorRealizado,
+        data_realizado: dataRealizado,
+        competencia: item.DataCompetencia || dataRealizado,
+        descricao: item.Nome || 'Sincronizado do Bom Controle',
+        cliente_fornecedor: clienteFornecedorId,
+        categoria: categoriaId,
+        quitado: item.DataQuitacao ? true : false,
+        conciliado: item.DataConciliacao ? true : false,
+        empresa: empresa, // ✅ SEPARA AS EMPRESAS
+      })
 
       if (error) {
         console.error('Error inserting record:', error)
@@ -211,21 +209,23 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(JSON.stringify({
-      success: true,
-      message: `${inserted} movimentações sincronizadas, ${skipped} ignoradas na empresa ${empresa}.`,
-      inserted,
-      skipped,
-      hasMore: false,
-      page: currentPage
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: `${inserted} movimentações sincronizadas, ${skipped} ignoradas na empresa ${empresa}.`,
+        inserted,
+        skipped,
+        hasMore: false,
+        page: currentPage,
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
+    )
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     })
   }
-}
-)
+})
