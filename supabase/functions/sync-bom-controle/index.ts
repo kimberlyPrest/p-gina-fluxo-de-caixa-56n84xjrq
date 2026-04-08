@@ -221,8 +221,17 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
+      const tipoNormalized = String(item.tipo || '')
+        .toUpperCase()
+        .trim()
+      const isReceita =
+        tipoNormalized === 'RECEITA' ||
+        tipoNormalized === 'RECEITAS' ||
+        tipoNormalized.includes('RECEITA')
+      const finalTipo = isReceita ? 'RECEITA' : 'DESPESA'
+
       const { error } = await supabaseClient.from('movimentacoes').insert({
-        tipo: item.tipo,
+        tipo: finalTipo,
         valor_realizado: item.valor,
         data_realizado: item.data_realizado,
         competencia: item.data_realizado,

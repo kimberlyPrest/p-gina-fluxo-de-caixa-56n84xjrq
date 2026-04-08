@@ -64,6 +64,7 @@ export type Database = {
           data_realizado: string | null
           departamento: string | null
           descricao: string | null
+          empresa: string
           id: string
           quitado: boolean | null
           tipo: string
@@ -78,6 +79,7 @@ export type Database = {
           data_realizado?: string | null
           departamento?: string | null
           descricao?: string | null
+          empresa?: string
           id?: string
           quitado?: boolean | null
           tipo: string
@@ -92,6 +94,7 @@ export type Database = {
           data_realizado?: string | null
           departamento?: string | null
           descricao?: string | null
+          empresa?: string
           id?: string
           quitado?: boolean | null
           tipo?: string
@@ -293,6 +296,7 @@ export const Constants = {
 //   quitado: boolean (nullable, default: false)
 //   conciliado: boolean (nullable, default: false)
 //   created_at: timestamp with time zone (nullable, default: now())
+//   empresa: text (not null, default: 'Linhares'::text)
 
 // --- CONSTRAINTS ---
 // Table: categorias

@@ -58,15 +58,25 @@ export function useTransactions(
     const { data, error } = await query
 
     if (!error && data) {
-      let mapped: Transaction[] = data.map((d: any) => ({
-        id: d.id,
-        type: String(d.tipo).toUpperCase() === 'RECEITA' ? 'RECEITA' : 'DESPESA',
-        entity: d.clientes_fornecedores?.nome || '-',
-        category: d.categorias?.nome || '-',
-        amount: Number(d.valor_realizado) || 0,
-        date: d.data_realizado ? `${d.data_realizado}T12:00:00Z` : new Date().toISOString(),
-        status: d.quitado ? 'CONCLUÍDO' : 'PENDENTE',
-      }))
+      let mapped: Transaction[] = data.map((d: any) => {
+        const tipoNormalized = String(d.tipo || '')
+          .toUpperCase()
+          .trim()
+        const isReceita =
+          tipoNormalized === 'RECEITA' ||
+          tipoNormalized === 'RECEITAS' ||
+          tipoNormalized.includes('RECEITA')
+
+        return {
+          id: d.id,
+          type: isReceita ? 'RECEITA' : 'DESPESA',
+          entity: d.clientes_fornecedores?.nome || '-',
+          category: d.categorias?.nome || '-',
+          amount: Number(d.valor_realizado) || 0,
+          date: d.data_realizado ? `${d.data_realizado}T12:00:00Z` : new Date().toISOString(),
+          status: d.quitado ? 'CONCLUÍDO' : 'PENDENTE',
+        }
+      })
 
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase()
