@@ -11,7 +11,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}))
     const empresa = body.empresa || 'Linhares'
     const page = body.page || 1
-    const pageSize = 50 // Lotes menores para processar em etapas sem estourar limites
+    const pageSize = body.pageSize || 50
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -23,116 +23,35 @@ Deno.serve(async (req: Request) => {
       },
     )
 
-    // Simulando chamada na API do Bom Controle paginada (trazendo todos os dados de Jan 2025 até hoje)
-    const startDate = new Date('2025-01-01T12:00:00Z')
-    const endDate = new Date() // Hoje
+    // Captura a chave de API correta baseada na empresa selecionada
+    const apiKey = empresa === 'Zapdos' ? Deno.env.get('ZAPDOS_API') : Deno.env.get('LINHARES_API')
 
-    // Calcula total de dias para mockar registros (1 por dia por empresa)
-    const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-    const totalRecords = Math.max(totalDays + 1, 1)
-
-    const startIndex = (page - 1) * pageSize
-    const endIndex = Math.min(startIndex + pageSize, totalRecords)
-
-    const mockBomControleData: any[] = []
-
-    const templatesLinhares = [
-      {
-        tipo: 'RECEITA',
-        valor: 4500.0,
-        descricao: 'Serviços de Consultoria (BC)',
-        cf_nome: 'Cliente Alpha Ltda',
-        cf_tipo: 'CLIENTE',
-        cat_nome: 'Serviços Prestados',
-        cat_tipo: 'RECEITA',
-      },
-      {
-        tipo: 'DESPESA',
-        valor: 120.5,
-        descricao: 'Licença de Software Mensal (BC)',
-        cf_nome: 'Tech Software SA',
-        cf_tipo: 'FORNECEDOR',
-        cat_nome: 'Licenças e Softwares',
-        cat_tipo: 'DESPESA',
-      },
-      {
-        tipo: 'RECEITA',
-        valor: 1500.0,
-        descricao: 'Manutenção Mensal de Servidores (BC)',
-        cf_nome: 'Gama Hosting',
-        cf_tipo: 'CLIENTE',
-        cat_nome: 'Serviços Prestados',
-        cat_tipo: 'RECEITA',
-      },
-      {
-        tipo: 'DESPESA',
-        valor: 2000.0,
-        descricao: 'Aluguel Escritório (BC)',
-        cf_nome: 'Imobiliária Central',
-        cf_tipo: 'FORNECEDOR',
-        cat_nome: 'Infraestrutura',
-        cat_tipo: 'DESPESA',
-      },
-    ]
-
-    const templatesZapdos = [
-      {
-        tipo: 'RECEITA',
-        valor: 8000.0,
-        descricao: 'Projeto Especial (BC)',
-        cf_nome: 'Beta Corporação',
-        cf_tipo: 'CLIENTE',
-        cat_nome: 'Projetos',
-        cat_tipo: 'RECEITA',
-      },
-      {
-        tipo: 'DESPESA',
-        valor: 350.0,
-        descricao: 'Materiais de Escritório (BC)',
-        cf_nome: 'Kalunga',
-        cf_tipo: 'FORNECEDOR',
-        cat_nome: 'Materiais',
-        cat_tipo: 'DESPESA',
-      },
-      {
-        tipo: 'DESPESA',
-        valor: 800.0,
-        descricao: 'Marketing Ads (BC)',
-        cf_nome: 'Google Brasil',
-        cf_tipo: 'FORNECEDOR',
-        cat_nome: 'Marketing',
-        cat_tipo: 'DESPESA',
-      },
-      {
-        tipo: 'RECEITA',
-        valor: 3200.0,
-        descricao: 'Venda de Licenças (BC)',
-        cf_nome: 'Empresa Delta',
-        cf_tipo: 'CLIENTE',
-        cat_nome: 'Vendas',
-        cat_tipo: 'RECEITA',
-      },
-    ]
-
-    const templates = empresa === 'Zapdos' ? templatesZapdos : templatesLinhares
-
-    for (let i = startIndex; i < endIndex; i++) {
-      const template = templates[i % templates.length]
-
-      const currentDate = new Date(startDate)
-      currentDate.setDate(currentDate.getDate() + i)
-
-      mockBomControleData.push({
-        tipo: template.tipo,
-        valor: template.valor + ((i * 10) % 100), // Variar o valor para simular registros diferentes
-        data_realizado: currentDate.toISOString().split('T')[0],
-        descricao: template.descricao,
-        cliente_fornecedor_nome: template.cf_nome,
-        cliente_fornecedor_tipo: template.cf_tipo,
-        categoria_nome: template.cat_nome,
-        categoria_tipo: template.cat_tipo,
-      })
+    if (!apiKey) {
+      throw new Error(`API key not configured for empresa: ${empresa}`)
     }
+
+    // Chamada REAL para a API do Bom Controle
+    // O endpoint exato e os parâmetros dependem da documentação oficial da API
+    const apiUrl = `https://api.bomcontrole.com.br/v1/financeiro/movimentacoes?page=${page}&limit=${pageSize}`
+
+    const apiResponse = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    })
+
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text()
+      throw new Error(`Bom Controle API error: ${apiResponse.status} - ${errorText}`)
+    }
+
+    const result = await apiResponse.json()
+    // Adaptação flexível para suportar diferentes estruturas de resposta comuns em APIs
+    const apiData =
+      result.data || result.items || result.movimentacoes || (Array.isArray(result) ? result : [])
 
     let inserted = 0
     let skipped = 0
@@ -140,18 +59,22 @@ Deno.serve(async (req: Request) => {
     const categoriaCache = new Map<string, string>()
     const clienteFornecedorCache = new Map<string, string>()
 
-    for (const item of mockBomControleData) {
+    for (const item of apiData) {
+      // 1. Processamento de Categoria
+      const categoriaNome = item.categoria_nome || item.categoria?.nome || 'Sem Categoria'
+      const categoriaTipo = item.categoria_tipo || item.categoria?.tipo || 'DESPESA'
+
       let categoriaId = null
-      if (item.categoria_nome) {
-        const cacheKey = `${item.categoria_nome}-${item.categoria_tipo}`
+      if (categoriaNome) {
+        const cacheKey = `${categoriaNome}-${categoriaTipo}`
         if (categoriaCache.has(cacheKey)) {
           categoriaId = categoriaCache.get(cacheKey)
         } else {
           const { data: catData } = await supabaseClient
             .from('categorias')
             .select('id')
-            .eq('nome', item.categoria_nome)
-            .eq('tipo', item.categoria_tipo)
+            .eq('nome', categoriaNome)
+            .eq('tipo', categoriaTipo)
             .maybeSingle()
 
           if (catData) {
@@ -160,7 +83,7 @@ Deno.serve(async (req: Request) => {
           } else {
             const { data: newCat } = await supabaseClient
               .from('categorias')
-              .insert({ nome: item.categoria_nome, tipo: item.categoria_tipo })
+              .insert({ nome: categoriaNome, tipo: categoriaTipo })
               .select('id')
               .single()
             if (newCat) {
@@ -171,17 +94,26 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // 2. Processamento de Cliente/Fornecedor
+      const cfNome =
+        item.cliente_fornecedor_nome ||
+        item.pessoa?.nome ||
+        item.fornecedor?.nome ||
+        item.cliente?.nome ||
+        'Não Informado'
+      const cfTipo = item.cliente_fornecedor_tipo || item.pessoa?.tipo || 'FORNECEDOR'
+
       let clienteFornecedorId = null
-      if (item.cliente_fornecedor_nome) {
-        const cacheKey = `${item.cliente_fornecedor_nome}-${item.cliente_fornecedor_tipo}`
+      if (cfNome) {
+        const cacheKey = `${cfNome}-${cfTipo}`
         if (clienteFornecedorCache.has(cacheKey)) {
           clienteFornecedorId = clienteFornecedorCache.get(cacheKey)
         } else {
           const { data: cfData } = await supabaseClient
             .from('clientes_fornecedores')
             .select('id')
-            .eq('nome', item.cliente_fornecedor_nome)
-            .eq('tipo', item.cliente_fornecedor_tipo)
+            .eq('nome', cfNome)
+            .eq('tipo', cfTipo)
             .maybeSingle()
 
           if (cfData) {
@@ -190,7 +122,7 @@ Deno.serve(async (req: Request) => {
           } else {
             const { data: newCf } = await supabaseClient
               .from('clientes_fornecedores')
-              .insert({ nome: item.cliente_fornecedor_nome, tipo: item.cliente_fornecedor_tipo })
+              .insert({ nome: cfNome, tipo: cfTipo })
               .select('id')
               .single()
             if (newCf) {
@@ -201,11 +133,20 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // 3. Normalização e Validação de Dados Principais
+      const dataRealizado =
+        item.data_realizado ||
+        item.dataPagamento ||
+        item.data ||
+        new Date().toISOString().split('T')[0]
+      const valorRealizado = item.valor || item.valorTotal || item.valor_realizado || 0
+
+      // Verifica duplicidade exata para evitar recriação durante sincronizações repetidas
       let query = supabaseClient
         .from('movimentacoes')
         .select('id')
-        .eq('data_realizado', item.data_realizado)
-        .eq('valor_realizado', item.valor)
+        .eq('data_realizado', dataRealizado)
+        .eq('valor_realizado', valorRealizado)
         .eq('empresa', empresa)
 
       if (clienteFornecedorId) {
@@ -221,25 +162,26 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
-      const tipoNormalized = String(item.tipo || '')
-        .toUpperCase()
-        .trim()
+      // Normalização de Tipo: Tudo que não é explicitamente "RECEITA" vira "DESPESA"
+      const rawTipo = item.tipo || item.natureza || 'DESPESA'
+      const tipoNormalized = String(rawTipo).toUpperCase().trim()
       const isReceita =
         tipoNormalized === 'RECEITA' ||
         tipoNormalized === 'RECEITAS' ||
         tipoNormalized.includes('RECEITA')
       const finalTipo = isReceita ? 'RECEITA' : 'DESPESA'
 
+      // 4. Inserção do Registro
       const { error } = await supabaseClient.from('movimentacoes').insert({
         tipo: finalTipo,
-        valor_realizado: item.valor,
-        data_realizado: item.data_realizado,
-        competencia: item.data_realizado,
-        descricao: item.descricao,
+        valor_realizado: valorRealizado,
+        data_realizado: dataRealizado,
+        competencia: item.competencia || item.dataCompetencia || dataRealizado,
+        descricao: item.descricao || item.historico || 'Sincronizado do Bom Controle',
         cliente_fornecedor: clienteFornecedorId,
         categoria: categoriaId,
-        quitado: true,
-        conciliado: true,
+        quitado: item.quitado !== undefined ? item.quitado : true,
+        conciliado: item.conciliado !== undefined ? item.conciliado : true,
         empresa: empresa,
       })
 
@@ -250,12 +192,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const hasMore = endIndex < totalRecords
+    // Define se há mais páginas para buscar baseado na resposta da API
+    const hasMore = result.hasMore !== undefined ? result.hasMore : apiData.length === pageSize
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: `${inserted} movimentações sincronizadas, ${skipped} ignoradas.`,
+        message: `${inserted} movimentações sincronizadas, ${skipped} ignoradas na empresa ${empresa}.`,
         inserted,
         skipped,
         hasMore,
